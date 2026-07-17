@@ -1,0 +1,5 @@
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# /etc/miniflux-dedup.env must be readable only by this cron user.
+17 * * * * root set -a && . /etc/miniflux-dedup.env && set +a && /usr/local/bin/miniflux-dedup >> /var/log/miniflux-dedup.log 2>&1

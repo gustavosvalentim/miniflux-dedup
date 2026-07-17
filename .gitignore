@@ -1,0 +1,5 @@
+/bin/
+.env
+/demo/index.html
+/demo/rendered/
+*.log
