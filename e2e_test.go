@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	dedup "github.com/gsv/miniflux-dedup"
+	dedup "github.com/gustavosvalentim/miniflux-dedup"
 )
 
 func TestExecutableEndToEnd(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	dedup "github.com/gsv/miniflux-dedup"
+	dedup "github.com/gustavosvalentim/miniflux-dedup"
 )
 
 const reportTemplate = `<!doctype html>
