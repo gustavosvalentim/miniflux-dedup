@@ -1,12 +1,14 @@
 # miniflux-dedup
 
-`miniflux-dedup` is a small, one-shot cron job that removes cross-feed duplicates from the Miniflux unread workflow. It fetches entries published today in the Miniflux user's timezone, keeps one deterministic copy of each matched article, and marks safe redundant unread copies as read.
+`miniflux-dedup` is a small program that removes cross-feed duplicates from the Miniflux unread workflow. It fetches entries published today in the Miniflux user's timezone, keeps one deterministic copy of each matched article, and marks safe redundant unread copies as read.
 
 It does not delete entries. Current Miniflux versions expose `read` and `unread` through this API, not an entry-level hard-delete operation.
 
+The program has no background loop, daemon, cron integration, or built-in scheduler. Each invocation processes one day and exits. Run it manually when needed, or configure and maintain an external scheduler such as system cron, a systemd timer, Kubernetes CronJob, or another automation service.
+
 ## How it works
 
-For each run, the job:
+Each time the program runs, it:
 
 1. Calls `GET /v1/me` to read the user's IANA timezone.
 2. Calculates `[local midnight, next local midnight)` for today, or for `-date` when supplied.
@@ -15,7 +17,7 @@ For each run, the job:
 5. Chooses one survivor per group, preferring starred, then unread, then the lowest Miniflux entry ID. Starred entries are never automatically marked read, including additional starred copies in the same group.
 6. Marks only redundant unread IDs as `read` with `PUT /v1/entries`.
 
-"Today" refers to the feed item's `published_at`, not when Miniflux discovered it. The job requires Miniflux 2.0.49 or newer because it uses the `published_after` and `published_before` filters. See the [official API reference](https://miniflux.app/docs/api.html).
+"Today" refers to the feed item's `published_at`, not when Miniflux discovered it. The program requires Miniflux 2.0.49 or newer because it uses the `published_after` and `published_before` filters. See the [official API reference](https://miniflux.app/docs/api.html).
 
 URL matching is the strongest tier. It lowercases the scheme and host, removes fragments and default ports, makes an empty path `/`, sorts query parameters, and removes `utm_*`, `_hsenc`, `_hsmi`, `dclid`, `fbclid`, `gclid`, `igshid`, `mc_cid`, `mc_eid`, `mkt_tok`, `msclkid`, and `vero_id`.
 
@@ -76,13 +78,13 @@ Validate credentials and matching before enabling mutation:
 ./bin/miniflux-dedup -dry-run
 ```
 
-A successful run emits one JSON line suitable for cron logs:
+A successful run prints one JSON line suitable for terminal or automation logs:
 
 ```json
 {"date":"2026-07-16","timezone":"America/Sao_Paulo","fetched_entries":42,"duplicate_groups":3,"canonical_url_groups":2,"title_publisher_24h_groups":1,"redundant_unread_entries":3,"changed_entries":3,"dry_run":false}
 ```
 
-No matching duplicates is a successful no-op. A dry run also includes a `matches` audit array containing each group's match reason, entry IDs, URLs, survivor, safe redundant unread IDs, and—when the title tier matched—the publisher host, normalized title, and publication span. Normal mutation runs omit those verbose article details from cron output. Any configuration, HTTP, JSON, timezone, pagination, or update failure produces a non-zero exit status. To bound memory and runaway pagination, a run fails before mutation if an API response exceeds 64 MiB or the API reports more than 100,000 entries for the selected day.
+No matching duplicates is a successful no-op. A dry run also includes a `matches` audit array containing each group's match reason, entry IDs, URLs, survivor, safe redundant unread IDs, and—when the title tier matched—the publisher host, normalized title, and publication span. Normal mutation runs omit those verbose article details from output. Any configuration, HTTP, JSON, timezone, pagination, or update failure produces a non-zero exit status. To bound memory and runaway pagination, an invocation fails before mutation if an API response exceeds 64 MiB or the API reports more than 100,000 entries for the selected day.
 
 ## Run with Docker
 
@@ -118,11 +120,11 @@ Only after inspecting a dry run, omit `-dry-run` to allow changes. For today's e
 docker run --rm --env-file .env miniflux-dedup:local -timeout 30s
 ```
 
-The container runs once and exits; it does not contain cron or an internal scheduler. Schedule the `docker run --rm` command externally when needed. The final image contains only the static executable, CA certificates, and timezone data. It has no shell and runs as numeric non-root user `65532`.
+The container runs once and exits; it does not contain cron or an internal scheduler. You must invoke `docker run --rm` manually or schedule it externally. The final image contains only the static executable, CA certificates, and timezone data. It has no shell and runs as numeric non-root user `65532`.
 
-## Install as a cron job
+## Optional: schedule externally with cron
 
-The included example runs hourly so new entries published later in the day are picked up. Repeated runs are idempotent because already-read redundant copies need no update.
+The program does not install or manage cron. The repository only includes an optional `/etc/cron.d` configuration example. If you want hourly execution, you must manually install and maintain that file—or translate the command to your preferred external scheduler. Repeated invocations are idempotent because already-read redundant copies need no update.
 
 ```sh
 sudo install -m 0755 bin/miniflux-dedup /usr/local/bin/miniflux-dedup
@@ -131,9 +133,9 @@ sudo install -m 0644 deploy/miniflux-dedup.cron /etc/cron.d/miniflux-dedup
 sudoedit /etc/miniflux-dedup.env
 ```
 
-The `/etc/cron.d` example runs as `root` and appends output to `/var/log/miniflux-dedup.log`. Change the user, paths, schedule, and logging destination to fit the host. Keep the environment file readable only by the cron user because it contains the API token.
+These commands merely copy the binary and example configuration; they do not start or enable a scheduler. The `/etc/cron.d` example runs as `root` and appends output to `/var/log/miniflux-dedup.log`. Change the user, paths, schedule, and logging destination to fit the host. Keep the environment file readable only by the scheduled operating-system user because it contains the API key.
 
-Run the exact cron command manually with `-dry-run` before installing the schedule:
+Run the command manually with `-dry-run` before creating or enabling any external schedule:
 
 ```sh
 . /etc/miniflux-dedup.env
@@ -142,9 +144,9 @@ Run the exact cron command manually with `-dry-run` before installing the schedu
 
 ## Recovery and limitations
 
-Remove or comment out the cron entry to stop future runs. Entries changed by this job remain in Miniflux and can be marked unread again from the UI.
+To stop future automated invocations, disable whichever external schedule you configured. Entries changed by the program remain in Miniflux and can be marked unread again from the UI.
 
-The title tier deliberately accepts false negatives rather than using fuzzy similarity or merging across publisher hosts, subdomains, or calendar-day fetches. A duplicate pair split across two selected calendar days is not compared, even if its timestamps are less than 24 hours apart. Entries arriving or changing during pagination may be deferred until the next hourly run. If a later update batch fails after earlier batches succeeded, the error reports the number already changed; the next idempotent run will converge the remainder.
+The title tier deliberately accepts false negatives rather than using fuzzy similarity or merging across publisher hosts, subdomains, or calendar-day fetches. A duplicate pair split across two selected calendar days is not compared, even if its timestamps are less than 24 hours apart. Entries arriving or changing during pagination may be deferred until the next invocation. If a later update batch fails after earlier batches succeeded, the error reports the number already changed; the next idempotent invocation will converge the remainder.
 
 ## Generate a local HTML dry-run report
 
