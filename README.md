@@ -88,10 +88,10 @@ No matching duplicates is a successful no-op. A dry run also includes a `matches
 
 ## Run with Docker
 
-Build the minimal, non-root image:
+The image is published to GitHub Container Registry. Pull `latest`, or replace it with a release tag such as `v0.1` for a pinned version:
 
 ```sh
-docker build -t miniflux-dedup:local .
+docker pull ghcr.io/gustavosvalentim/miniflux-dedup:latest
 ```
 
 Create a permission-restricted environment file from the example:
@@ -104,20 +104,29 @@ chmod 0600 .env
 The image defaults to dry-run mode. This reads Miniflux and reports matches without changing entries:
 
 ```sh
-docker run --rm --env-file .env miniflux-dedup:local
+docker run --rm --env-file .env \
+  ghcr.io/gustavosvalentim/miniflux-dedup:latest
 ```
 
 Arguments passed after the image name replace the safe `-dry-run` default. Use an explicit dry run for a selected date:
 
 ```sh
-docker run --rm --env-file .env miniflux-dedup:local \
+docker run --rm --env-file .env \
+  ghcr.io/gustavosvalentim/miniflux-dedup:latest \
   -dry-run -date 2026-07-14
 ```
 
 Only after inspecting a dry run, omit `-dry-run` to allow changes. For today's entries, pass another explicit flag so the image's default command is replaced:
 
 ```sh
-docker run --rm --env-file .env miniflux-dedup:local -timeout 30s
+docker run --rm --env-file .env \
+  ghcr.io/gustavosvalentim/miniflux-dedup:latest -timeout 30s
+```
+
+To build the minimal, non-root image locally instead:
+
+```sh
+docker build -t miniflux-dedup:local .
 ```
 
 The container runs once and exits; it does not contain cron or an internal scheduler. You must invoke `docker run --rm` manually or schedule it externally. The final image contains only the static executable, CA certificates, and timezone data. It has no shell and runs as numeric non-root user `65532`.
